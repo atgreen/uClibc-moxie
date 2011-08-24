@@ -473,6 +473,7 @@ config LDSO_GNU_HASH_SUPPORT
 choice
 	prompt "Thread support"
 	#default UCLIBC_HAS_THREADS_NATIVE if (TARGET_alpha || TARGET_arm || TARGET_i386 || TARGET_mips || TARGET_powerpc || TARGET_sh || TARGET_sh64)
+	default LINUXTHREADS_OLD if (TARGET_moxie)
 	default HAS_NO_THREADS
 	help
 	  If you want to compile uClibc with pthread support, then answer Y.
