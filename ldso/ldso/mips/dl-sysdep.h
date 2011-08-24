@@ -109,9 +109,12 @@ else if (dpnt->d_tag == DT_MIPS_SYMTABNO) \
      dynamic[DT_MIPS_SYMTABNO_IDX] = dpnt->d_un.d_val; \
 else if (dpnt->d_tag == DT_MIPS_PLTGOT) \
      dynamic[DT_MIPS_PLTGOT_IDX] = dpnt->d_un.d_val; \
-else if (dpnt->d_tag == DT_MIPS_RLD_MAP) \
+else if ((dpnt->d_tag == DT_MIPS_RLD_MAP) && (dpnt->d_un.d_ptr)) \
      *(ElfW(Addr) *)(dpnt->d_un.d_ptr) =  (ElfW(Addr)) debug_addr; \
 } while (0)
+
+#define ARCH_SKIP_RELOC(type_class, sym) \
+     ((sym)->st_shndx == SHN_UNDEF && !((sym)->st_other & STO_MIPS_PLT))
 
 /* Initialization sequence for the application/library GOT.  */
 #define INIT_GOT(GOT_BASE,MODULE)						\
@@ -127,7 +130,7 @@ do {										\
 	GOT_BASE[0] = (unsigned long) _dl_runtime_resolve;			\
 	GOT_BASE[1] = (unsigned long) MODULE;					\
 										\
-	pltgot = MODULE->dynamic_info[DT_MIPS_PLTGOT_IDX];			\
+	pltgot = (unsigned long *) MODULE->dynamic_info[DT_MIPS_PLTGOT_IDX];	\
 	if (pltgot) {								\
 		pltgot[0] = (unsigned long) _dl_runtime_pltresolve;		\
 		pltgot[1] = (unsigned long) MODULE;				\
@@ -156,6 +159,9 @@ unsigned long __dl_runtime_resolve(unsigned long sym_index,
 	unsigned long old_gpreg);
 
 struct elf_resolve;
+unsigned long __dl_runtime_pltresolve(struct elf_resolve *tpnt,
+	int reloc_entry);
+
 void _dl_perform_mips_global_got_relocations(struct elf_resolve *tpnt, int lazy);
 
 /* 4096 bytes alignment */

@@ -46,11 +46,11 @@ _dl_linux_resolver (struct elf_resolve *tpnt, int reloc_entry)
 	ElfW(Sym) *symtab;
 	int symtab_index;
 	char *rel_addr;
-	struct elf_resolve *new_tpnt;
 	char *new_addr;
 	struct funcdesc_value funcval;
 	struct funcdesc_value volatile *got_entry;
 	char *symname;
+	struct symbol_ref sym_ref;
 
 	rel_addr = (char *)tpnt->dynamic_info[DT_JMPREL];
 
@@ -59,15 +59,17 @@ _dl_linux_resolver (struct elf_resolve *tpnt, int reloc_entry)
 
 	symtab = (Elf32_Sym *) tpnt->dynamic_info[DT_SYMTAB];
 	strtab = (char *) tpnt->dynamic_info[DT_STRTAB];
+	sym_ref.sym = &symtab[symtab_index];
+	sym_ref.tpnt = NULL;
 	symname= strtab + symtab[symtab_index].st_name;
 
 	/* Address of GOT entry fix up */
 	got_entry = (struct funcdesc_value *) DL_RELOC_ADDR(tpnt->loadaddr, this_reloc->r_offset);
 
 	/* Get the address to be used to fill in the GOT entry.  */
-	new_addr = _dl_lookup_hash(symname, tpnt->symbol_scope, NULL, 0, &new_tpnt);
+	new_addr = _dl_find_hash(symname, &_dl_loaded_modules->symbol_scope, NULL, 0, &sym_ref);
 	if (!new_addr) {
-		new_addr = _dl_lookup_hash(symname, NULL, NULL, 0, &new_tpnt);
+		new_addr = _dl_find_hash(symname, NULL, NULL, 0, &sym_ref);
 		if (!new_addr) {
 			_dl_dprintf(2, "%s: can't resolve symbol '%s'\n",
 				    _dl_progname, symname);
@@ -76,7 +78,7 @@ _dl_linux_resolver (struct elf_resolve *tpnt, int reloc_entry)
 	}
 
 	funcval.entry_point = new_addr;
-	funcval.got_value = new_tpnt->loadaddr.got_value;
+	funcval.got_value = sym_ref.tpnt->loadaddr.got_value;
 
 #if defined (__SUPPORT_LD_DEBUG__)
 	if (_dl_debug_bindings) {
@@ -99,9 +101,9 @@ _dl_linux_resolver (struct elf_resolve *tpnt, int reloc_entry)
 }
 
 static int
-_dl_parse(struct elf_resolve *tpnt, struct dyn_elf *scope,
+_dl_parse(struct elf_resolve *tpnt, struct r_scope_elem *scope,
 	  unsigned long rel_addr, unsigned long rel_size,
-	  int (*reloc_fnc) (struct elf_resolve *tpnt, struct dyn_elf *scope,
+	  int (*reloc_fnc) (struct elf_resolve *tpnt, struct r_scope_elem *scope,
 			    ELF_RELOC *rpnt, ElfW(Sym) *symtab, char *strtab))
 {
 	unsigned int i;
@@ -150,7 +152,7 @@ _dl_parse(struct elf_resolve *tpnt, struct dyn_elf *scope,
 }
 
 static int
-_dl_do_reloc (struct elf_resolve *tpnt,struct dyn_elf *scope,
+_dl_do_reloc (struct elf_resolve *tpnt,struct r_scope_elem *scope,
 	      ELF_RELOC *rpnt, ElfW(Sym) *symtab, char *strtab)
 {
 	int reloc_type;
@@ -165,12 +167,15 @@ _dl_do_reloc (struct elf_resolve *tpnt,struct dyn_elf *scope,
 #if defined (__SUPPORT_LD_DEBUG__)
 	unsigned long old_val;
 #endif
+	struct symbol_ref sym_ref;
 
 	reloc_addr   = (unsigned long *) DL_RELOC_ADDR(tpnt->loadaddr, rpnt->r_offset);
 	__asm__ ("" : "=r" (reloc_addr_packed) : "0" (reloc_addr));
 	reloc_type   = ELF_R_TYPE(rpnt->r_info);
 	symtab_index = ELF_R_SYM(rpnt->r_info);
 	symbol_addr  = 0;
+	sym_ref.sym =  &symtab[symtab_index];
+	sym_ref.tpnt =  NULL;
 	symname      = strtab + symtab[symtab_index].st_name;
 
 	if (ELF_ST_BIND (symtab[symtab_index].st_info) == STB_LOCAL) {
@@ -179,7 +184,7 @@ _dl_do_reloc (struct elf_resolve *tpnt,struct dyn_elf *scope,
 	} else {
 
 		symbol_addr = (unsigned long)
-		  _dl_lookup_hash(symname, scope, NULL, 0, &symbol_tpnt);
+		  _dl_find_hash(symname, scope, NULL, 0, &sym_ref);
 
 		/*
 		 * We want to allow undefined references to weak symbols - this might
@@ -189,9 +194,13 @@ _dl_do_reloc (struct elf_resolve *tpnt,struct dyn_elf *scope,
 
 		if (!symbol_addr && ELF_ST_BIND(symtab[symtab_index].st_info) != STB_WEAK) {
 			_dl_dprintf (2, "%s: can't resolve symbol '%s'\n",
-				     _dl_progname, strtab + symtab[symtab_index].st_name);
+				     _dl_progname, symname);
 			_dl_exit (1);
 		}
+		if (_dl_trace_prelink)
+			_dl_debug_lookup (symname, tpnt, &symtab[symtab_index],
+				&sym_ref, elf_machine_type_class(reloc_type));
+		symbol_tpnt = sym_ref.tpnt;
 	}
 
 #if defined (__SUPPORT_LD_DEBUG__)
@@ -275,7 +284,7 @@ _dl_do_reloc (struct elf_resolve *tpnt,struct dyn_elf *scope,
 
 static int
 _dl_do_lazy_reloc (struct elf_resolve *tpnt,
-		   struct dyn_elf *scope __attribute__((unused)),
+		   struct r_scope_elem *scope __attribute__((unused)),
 		   ELF_RELOC *rpnt, ElfW(Sym) *symtab __attribute__((unused)),
 		   char *strtab __attribute__((unused)))
 {
@@ -321,9 +330,9 @@ _dl_parse_lazy_relocation_information
 
 int
 _dl_parse_relocation_information
-(struct dyn_elf *rpnt, unsigned long rel_addr, unsigned long rel_size)
+(struct dyn_elf *rpnt, struct r_scope_elem *scope, unsigned long rel_addr, unsigned long rel_size)
 {
-  return _dl_parse(rpnt->dyn, rpnt->dyn->symbol_scope, rel_addr, rel_size, _dl_do_reloc);
+  return _dl_parse(rpnt->dyn, scope, rel_addr, rel_size, _dl_do_reloc);
 }
 
 /* We don't have copy relocs.  */

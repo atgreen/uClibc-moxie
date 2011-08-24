@@ -146,7 +146,6 @@ struct elf_resolve *_dl_add_elf_hash_table(const char *libname,
 		tpnt->chains = hash_addr;
 	}
 	tpnt->loadaddr = loadaddr;
-	tpnt->mapaddr = DL_RELOC_ADDR(loadaddr, 0);
 	for (i = 0; i < DYNAMIC_SIZE; i++)
 		tpnt->dynamic_info[i] = dynamic_info[i];
 	return tpnt;
@@ -187,6 +186,10 @@ check_match (const ElfW(Sym) *sym, char *strtab, const char* undef_name, int typ
 		 * and STT_COMMON entries since these are no
 		 * code/data definitions
 		 */
+		return NULL;
+#endif
+#ifdef ARCH_SKIP_RELOC
+	if (ARCH_SKIP_RELOC(type_class, sym))
 		return NULL;
 #endif
 	if (_dl_strcmp(strtab + sym->st_name, undef_name) != 0)
@@ -268,78 +271,91 @@ _dl_lookup_sysv_hash(struct elf_resolve *tpnt, ElfW(Sym) *symtab, unsigned long 
  * This function resolves externals, and this is either called when we process
  * relocations or when we call an entry in the PLT table for the first time.
  */
-char *_dl_lookup_hash(const char *name, struct dyn_elf *rpnt, struct elf_resolve *mytpnt,
-	int type_class, struct elf_resolve **tpntp)
+char *_dl_find_hash(const char *name, struct r_scope_elem *scope, struct elf_resolve *mytpnt,
+	int type_class, struct symbol_ref *sym_ref)
 {
 	struct elf_resolve *tpnt = NULL;
 	ElfW(Sym) *symtab;
+	int i = 0;
 
 	unsigned long elf_hash_number = 0xffffffff;
 	const ElfW(Sym) *sym = NULL;
 
 	char *weak_result = NULL;
+	struct r_scope_elem *loop_scope;
 
 #ifdef __LDSO_GNU_HASH_SUPPORT__
 	unsigned long gnu_hash_number = _dl_gnu_hash((const unsigned char *)name);
 #endif
 
-	for (; rpnt; rpnt = rpnt->next) {
-		tpnt = rpnt->dyn;
+	if ((sym_ref) && (sym_ref->sym) && (ELF32_ST_VISIBILITY(sym_ref->sym->st_other) == STV_PROTECTED)) {
+			sym = sym_ref->sym;
+		if (mytpnt)
+			tpnt = mytpnt;
+	} else
+	for (loop_scope = scope; loop_scope && !sym; loop_scope = loop_scope->next) {
+		for (i = 0; i < loop_scope->r_nlist; i++) {
+			tpnt = loop_scope->r_list[i];
 
-		if (!(tpnt->rtld_flags & RTLD_GLOBAL) && mytpnt) {
-			if (mytpnt == tpnt)
-				;
-			else {
-				struct init_fini_list *tmp;
+			if (!(tpnt->rtld_flags & RTLD_GLOBAL) && mytpnt) {
+				if (mytpnt == tpnt)
+					;
+				else {
+					struct init_fini_list *tmp;
 
-				for (tmp = mytpnt->rtld_local; tmp; tmp = tmp->next) {
-					if (tmp->tpnt == tpnt)
-						break;
+					for (tmp = mytpnt->rtld_local; tmp; tmp = tmp->next) {
+						if (tmp->tpnt == tpnt)
+							break;
+					}
+					if (!tmp)
+						continue;
 				}
-				if (!tmp)
-					continue;
 			}
-		}
-		/* Don't search the executable when resolving a copy reloc. */
-		if ((type_class &  ELF_RTYPE_CLASS_COPY) && tpnt->libtype == elf_executable)
-			continue;
+			/* Don't search the executable when resolving a copy reloc. */
+			if ((type_class &  ELF_RTYPE_CLASS_COPY) && tpnt->libtype == elf_executable)
+				continue;
 
-		/* If the hash table is empty there is nothing to do here.  */
-		if (tpnt->nbucket == 0)
-			continue;
+			/* If the hash table is empty there is nothing to do here.  */
+			if (tpnt->nbucket == 0)
+				continue;
 
-		symtab = (ElfW(Sym) *) (intptr_t) (tpnt->dynamic_info[DT_SYMTAB]);
+			symtab = (ElfW(Sym) *) (intptr_t) (tpnt->dynamic_info[DT_SYMTAB]);
 
 #ifdef __LDSO_GNU_HASH_SUPPORT__
-		/* Prefer GNU hash style, if any */
-		if (tpnt->l_gnu_bitmask) {
-			sym = _dl_lookup_gnu_hash(tpnt, symtab, gnu_hash_number, name, type_class);
-			if (sym != NULL)
-				/* If sym has been found, do not search further */
-				break;
-		} else {
+			/* Prefer GNU hash style, if any */
+			if (tpnt->l_gnu_bitmask) {
+				sym = _dl_lookup_gnu_hash(tpnt, symtab, gnu_hash_number, name, type_class);
+				if (sym != NULL)
+					/* If sym has been found, do not search further */
+					break;
+			} else {
 #endif
-		/* Use the old SysV-style hash table */
+				/* Use the old SysV-style hash table */
 
-		/* Calculate the old sysv hash number only once */
-		if (elf_hash_number == 0xffffffff)
-			elf_hash_number = _dl_elf_hash((const unsigned char *)name);
+				/* Calculate the old sysv hash number only once */
+				if (elf_hash_number == 0xffffffff)
+					elf_hash_number = _dl_elf_hash((const unsigned char *)name);
 
-		sym = _dl_lookup_sysv_hash(tpnt, symtab, elf_hash_number, name, type_class);
-		if (sym != NULL)
-			break;
+				sym = _dl_lookup_sysv_hash(tpnt, symtab, elf_hash_number, name, type_class);
+				if (sym != NULL)
+					/* If sym has been found, do not search further */
+					break;
 #ifdef __LDSO_GNU_HASH_SUPPORT__
-		}
+			}
 #endif
-	} /* end of for (; rpnt; rpnt = rpnt->next) { */
+		} /* End of inner for */
+	}
 
 	if (sym) {
+		if (sym_ref) {
+			sym_ref->sym = sym;
+			sym_ref->tpnt = tpnt;
+		}
 		/* At this point we have found the requested symbol, do binding */
 #if defined(USE_TLS) && USE_TLS
 		if (ELF_ST_TYPE(sym->st_info) == STT_TLS) {
-			_dl_assert(tpntp != NULL);
-			*tpntp = tpnt;
-
+			_dl_assert(sym_ref != NULL);
+			sym_ref->tpnt = tpnt;
 			return (char *)sym->st_value;
 		}
 #endif
@@ -355,8 +371,8 @@ char *_dl_lookup_hash(const char *name, struct dyn_elf *rpnt, struct elf_resolve
 #endif
 			case STB_GLOBAL:
 #ifdef __FDPIC__
-				if (tpntp)
-					*tpntp = tpnt;
+			if (sym_ref)
+				sym_ref->tpnt = tpnt;
 #endif
 				return (char *)DL_FIND_HASH_VALUE(tpnt, type_class, sym);
 			default:	/* Local symbols not handled here */
@@ -364,8 +380,8 @@ char *_dl_lookup_hash(const char *name, struct dyn_elf *rpnt, struct elf_resolve
 		}
 	}
 #ifdef __FDPIC__
-	if (tpntp)
-		*tpntp = tpnt;
+	if (sym_ref)
+		sym_ref->tpnt = tpnt;
 #endif
 	return weak_result;
 }

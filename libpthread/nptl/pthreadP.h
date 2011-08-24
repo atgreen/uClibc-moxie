@@ -179,7 +179,13 @@ extern struct pthread_key_struct __pthread_keys[PTHREAD_KEYS_MAX];
 hidden_proto (__pthread_keys)
 
 /* Number of threads running.  */
-extern unsigned int __nptl_nthreads attribute_hidden;
+extern unsigned int __nptl_nthreads
+#ifdef SHARED
+	attribute_hidden
+#else
+	__attribute ((weak))
+#endif
+	;
 
 #ifndef __ASSUME_SET_ROBUST_LIST
 /* Negative if we do not have the system call and we can use it.  */
@@ -274,6 +280,8 @@ __do_cancel (void)
 #define CANCEL_RESET(oldtype) \
   __pthread_disable_asynccancel (oldtype)
 
+#define __LABEL_PREFIX__ __stringify(__USER_LABEL_PREFIX__)
+
 #if !defined NOT_IN_libc
 /* Same as CANCEL_ASYNC, but for use in libc.so.  */
 # define LIBC_CANCEL_ASYNC() \
@@ -282,29 +290,29 @@ __do_cancel (void)
 # define LIBC_CANCEL_RESET(oldtype) \
   __libc_disable_asynccancel (oldtype)
 # define LIBC_CANCEL_HANDLED() \
-  __asm__ (".globl " __USER_LABEL_PREFIX__ "__libc_enable_asynccancel"); \
-  __asm__ (".globl " __USER_LABEL_PREFIX__ "__libc_disable_asynccancel")
+  __asm__ (".globl " __LABEL_PREFIX__ "__libc_enable_asynccancel"); \
+  __asm__ (".globl " __LABEL_PREFIX__ "__libc_disable_asynccancel")
 #elif defined NOT_IN_libc && defined IS_IN_libpthread
 # define LIBC_CANCEL_ASYNC() CANCEL_ASYNC ()
 # define LIBC_CANCEL_RESET(val) CANCEL_RESET (val)
 # define LIBC_CANCEL_HANDLED() \
-  __asm__ (".globl " __USER_LABEL_PREFIX__ "__pthread_enable_asynccancel"); \
-  __asm__ (".globl " __USER_LABEL_PREFIX__ "__pthread_disable_asynccancel")
+  __asm__ (".globl " __LABEL_PREFIX__ "__pthread_enable_asynccancel"); \
+  __asm__ (".globl " __LABEL_PREFIX__ "__pthread_disable_asynccancel")
 #elif defined NOT_IN_libc && defined IS_IN_librt
 # define LIBC_CANCEL_ASYNC() \
   __librt_enable_asynccancel ()
 # define LIBC_CANCEL_RESET(val) \
   __librt_disable_asynccancel (val)
 # define LIBC_CANCEL_HANDLED() \
-  __asm__ (".globl " __USER_LABEL_PREFIX__ "__librt_enable_asynccancel"); \
-  __asm__ (".globl " __USER_LABEL_PREFIX__ "__librt_disable_asynccancel")
+  __asm__ (".globl " __LABEL_PREFIX__ "__librt_enable_asynccancel"); \
+  __asm__ (".globl " __LABEL_PREFIX__ "__librt_disable_asynccancel")
 #else
 # define LIBC_CANCEL_ASYNC()	0 /* Just a dummy value.  */
 # define LIBC_CANCEL_RESET(val)	((void)(val)) /* Nothing, but evaluate it.  */
 # define LIBC_CANCEL_HANDLED()	/* Nothing.  */
 #endif
 
-/* The signal used for asynchronous cancelation.  */
+/* The signal used for asynchronous cancellation.  */
 #define SIGCANCEL	__SIGRTMIN
 
 
@@ -561,7 +569,13 @@ extern void _pthread_cleanup_push_defer (struct _pthread_cleanup_buffer *buffer,
 extern void _pthread_cleanup_pop_restore (struct _pthread_cleanup_buffer *buffer,
                                           int execute);
 
-extern void __nptl_deallocate_tsd (void) attribute_hidden;
+extern void __nptl_deallocate_tsd (void)
+#ifdef SHARED
+	attribute_hidden
+#else
+	__attribute ((weak))
+#endif
+	;
 
 extern int __nptl_setxid (struct xid_command *cmdp) attribute_hidden;
 

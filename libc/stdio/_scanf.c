@@ -198,7 +198,6 @@ int vscanf(const char * __restrict format, va_list arg)
 {
 	return vfscanf(stdin, format, arg);
 }
-libc_hidden_def(vscanf)
 
 #endif
 /**********************************************************************/
@@ -550,7 +549,7 @@ enum {
 #elif defined(LLONG_MAX) && (INTMAX_MAX == LLONG_MAX)
 #define IMS		8
 #else
-#error fix QUAL_CHARS ptrdiff_t entry 't'!
+#error fix QUAL_CHARS intmax_t entry 'j'!
 #endif
 
 #define QUAL_CHARS		{ \
@@ -924,7 +923,10 @@ int attribute_hidden __psfs_parse_spec(register psfs_t *psfs)
 				goto ERROR_EINVAL;
 			}
 
-			if ((p_m_spec_chars >= CONV_c)
+			if (p_m_spec_chars == CONV_p) {
+				/* a pointer has the same size as 'long int'  */
+				psfs->dataargtype = PA_FLAG_LONG;
+			} else if ((p_m_spec_chars >= CONV_c)
 				&& (psfs->dataargtype & PA_FLAG_LONG)) {
 				p_m_spec_chars -= 3; /* lc -> C, ls -> S, l[ -> ?? */
 			}

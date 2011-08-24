@@ -69,7 +69,7 @@ unsigned long _dl_linux_resolver(struct elf_resolve *tpnt, int reloc_entry)
 	got_addr = (char **) instr_addr;
 
 	/* Get the address of the GOT entry */
-	new_addr = _dl_find_hash(symname, tpnt->symbol_scope, tpnt, ELF_RTYPE_CLASS_PLT, NULL);
+	new_addr = _dl_find_hash(symname, &_dl_loaded_modules->symbol_scope, tpnt, ELF_RTYPE_CLASS_PLT, NULL);
 
 	if (unlikely(!new_addr)) {
 		_dl_dprintf(2, "%s: can't resolve symbol '%s'\n", _dl_progname, symname);
@@ -95,9 +95,9 @@ unsigned long _dl_linux_resolver(struct elf_resolve *tpnt, int reloc_entry)
 
 
 static int
-_dl_parse(struct elf_resolve *tpnt, struct dyn_elf *scope,
+_dl_parse(struct elf_resolve *tpnt, struct r_scope_elem *scope,
 	  unsigned long rel_addr, unsigned long rel_size,
-	  int (*reloc_fnc) (struct elf_resolve *tpnt, struct dyn_elf *scope,
+	  int (*reloc_fnc) (struct elf_resolve *tpnt, struct r_scope_elem *scope,
 			    ELF_RELOC *rpnt, Elf32_Sym *symtab, char *strtab))
 {
 	unsigned int i;
@@ -148,7 +148,7 @@ _dl_parse(struct elf_resolve *tpnt, struct dyn_elf *scope,
 
 
 static int
-_dl_do_reloc (struct elf_resolve *tpnt,struct dyn_elf *scope,
+_dl_do_reloc (struct elf_resolve *tpnt, struct r_scope_elem *scope,
 	      ELF_RELOC *rpnt, Elf32_Sym *symtab, char *strtab)
 {
 	int reloc_type;
@@ -161,37 +161,38 @@ _dl_do_reloc (struct elf_resolve *tpnt,struct dyn_elf *scope,
 #endif
 
 	struct elf_resolve *tls_tpnt = NULL;
+	struct symbol_ref sym_ref;
 
 	reloc_addr = (unsigned long *)(intptr_t) (tpnt->loadaddr + (unsigned long) rpnt->r_offset);
 	reloc_type = ELF32_R_TYPE(rpnt->r_info);
 	symtab_index = ELF32_R_SYM(rpnt->r_info);
 	symbol_addr = 0;
+	sym_ref.sym = &symtab[symtab_index];
+	sym_ref.tpnt = NULL;
 
 	if (symtab_index) {
 		symname = strtab + symtab[symtab_index].st_name;
-		if (ELF32_ST_VISIBILITY(symtab[symtab_index].st_other)
-			 != STV_PROTECTED) {
-			symbol_addr = (unsigned long) _dl_find_hash(symname, scope, tpnt,
-								elf_machine_type_class(reloc_type), &tls_tpnt);
-			/*
-			 * We want to allow undefined references to weak symbols - this might
-			 * have been intentional.  We should not be linking local symbols
-			 * here, so all bases should be covered.
-			 */
+		symbol_addr = (unsigned long) _dl_find_hash(symname, scope, tpnt,
+						elf_machine_type_class(reloc_type), &sym_ref);
+		/*
+		 * We want to allow undefined references to weak symbols - this might
+		 * have been intentional.  We should not be linking local symbols
+		 * here, so all bases should be covered.
+		 */
 
-			if (!symbol_addr
-				&& (ELF_ST_TYPE(symtab[symtab_index].st_info) != STT_TLS)
-				&& (ELF32_ST_BIND(symtab[symtab_index].st_info) != STB_WEAK)) {
-				_dl_dprintf(2, "%s: can't resolve symbol '%s'\n",
-				            _dl_progname, strtab + symtab[symtab_index].st_name);
+		if (!symbol_addr
+			&& (ELF_ST_TYPE(symtab[symtab_index].st_info) != STT_TLS)
+			&& (ELF32_ST_BIND(symtab[symtab_index].st_info) != STB_WEAK)) {
+			_dl_dprintf(2, "%s: can't resolve symbol '%s'\n",
+			            _dl_progname, symname);
 
-				/* Let the caller to handle the error: it may be non fatal if called from dlopen */
-				return 1;
-			}
-		} else
-			/* Resolve protected symbols locally */
-			symbol_addr = DL_FIND_HASH_VALUE(tpnt, elf_machine_type_class(reloc_type),
-											&symtab[symtab_index]);
+			/* Let the caller to handle the error: it may be non fatal if called from dlopen */
+			return 1;
+		}
+		if (_dl_trace_prelink)
+			_dl_debug_lookup (symname, tpnt, &symtab[symtab_index],
+							&sym_ref, elf_machine_type_class(reloc_type));
+		tls_tpnt = sym_ref.tpnt;
 	}
 
 #if defined (__SUPPORT_LD_DEBUG__)
@@ -257,7 +258,7 @@ _dl_do_reloc (struct elf_resolve *tpnt,struct dyn_elf *scope,
 
 
 static int
-_dl_do_lazy_reloc (struct elf_resolve *tpnt, struct dyn_elf *scope,
+_dl_do_lazy_reloc (struct elf_resolve *tpnt, struct r_scope_elem *scope,
 		   ELF_RELOC *rpnt, Elf32_Sym *symtab, char *strtab)
 {
 	int reloc_type;
@@ -299,7 +300,7 @@ void _dl_parse_lazy_relocation_information(struct dyn_elf *rpnt,
 }
 
 int _dl_parse_relocation_information(struct dyn_elf *rpnt,
-	unsigned long rel_addr, unsigned long rel_size)
+	struct r_scope_elem *scope, unsigned long rel_addr, unsigned long rel_size)
 {
-	return _dl_parse(rpnt->dyn, rpnt->dyn->symbol_scope, rel_addr, rel_size, _dl_do_reloc);
+	return _dl_parse(rpnt->dyn, scope, rel_addr, rel_size, _dl_do_reloc);
 }

@@ -15,6 +15,7 @@
    along with this program; if not, write to the Free Software Foundation,
    Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 
+#define _GNU_SOURCE 1
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
@@ -1014,18 +1015,42 @@ static const struct conf vars[] =
 
 static const struct { const char *name; int num; } specs[] =
   {
+#ifdef _SC_XBS5_ILP32_OFF32
     { "XBS5_ILP32_OFF32", _SC_XBS5_ILP32_OFF32 },
+#endif
+#ifdef _SC_XBS5_ILP32_OFFBIG
     { "XBS5_ILP32_OFFBIG", _SC_XBS5_ILP32_OFFBIG },
+#endif
+#ifdef _SC_XBS5_LP64_OFF64
     { "XBS5_LP64_OFF64", _SC_XBS5_LP64_OFF64 },
+#endif
+#ifdef _SC_XBS5_LPBIG_OFFBIG
     { "XBS5_LPBIG_OFFBIG", _SC_XBS5_LPBIG_OFFBIG },
+#endif
+#ifdef _SC_V6_ILP32_OFF32
     { "POSIX_V6_ILP32_OFF32", _SC_V6_ILP32_OFF32 },
+#endif
+#ifdef _SC_V6_ILP32_OFFBIG
     { "POSIX_V6_ILP32_OFFBIG", _SC_V6_ILP32_OFFBIG },
+#endif
+#ifdef _SC_V6_LP64_OFF64
     { "POSIX_V6_LP64_OFF64", _SC_V6_LP64_OFF64 },
+#endif
+#ifdef _SC_V6_LPBIG_OFFBIG
     { "POSIX_V6_LPBIG_OFFBIG", _SC_V6_LPBIG_OFFBIG },
+#endif
+#ifdef _SC_V7_ILP32_OFF32
     { "POSIX_V7_ILP32_OFF32", _SC_V7_ILP32_OFF32 },
+#endif
+#ifdef _SC_V7_ILP32_OFFBIG
     { "POSIX_V7_ILP32_OFFBIG", _SC_V7_ILP32_OFFBIG },
+#endif
+#ifdef _SC_V7_LP64_OFF64
     { "POSIX_V7_LP64_OFF64", _SC_V7_LP64_OFF64 },
+#endif
+#ifdef _SC_V7_LPBIG_OFFBIG
     { "POSIX_V7_LPBIG_OFFBIG", _SC_V7_LPBIG_OFFBIG },
+#endif
   };
 static const int nspecs = sizeof (specs) / sizeof (specs[0]);
 
@@ -1177,41 +1202,41 @@ environment SPEC.\n\n");
 
       switch (specs[i].num)
 	{
-#ifndef _XBS5_ILP32_OFF32
-	  case _SC_XBS5_ILP32_OFF32:
+#if !defined(_XBS5_ILP32_OFF32) && defined(_SC_XBS5_ILP32_OFF32)
+	case _SC_XBS5_ILP32_OFF32:
 #endif
-#ifndef _XBS5_ILP32_OFFBIG
-	  case _SC_XBS5_ILP32_OFFBIG:
+#if !defined(_XBS5_ILP32_OFFBIG) && defined(_SC_XBS5_ILP32_OFFBIG)
+	case _SC_XBS5_ILP32_OFFBIG:
 #endif
-#ifndef _XBS5_LP64_OFF64
-	  case _SC_XBS5_LP64_OFF64:
+#if !defined(_XBS5_LP64_OFF64) && defined(_SC_XBS5_LP64_OFF64)
+	case _SC_XBS5_LP64_OFF64:
 #endif
-#ifndef _XBS5_LPBIG_OFFBIG
-	  case _SC_XBS5_LPBIG_OFFBIG:
+#if !defined(_XBS5_LPBIG_OFFBIG) && defined(_SC_XBS5_LPBIG_OFFBIG)
+	case _SC_XBS5_LPBIG_OFFBIG:
 #endif
-#ifndef _POSIX_V6_ILP32_OFF32
-	  case _SC_V6_ILP32_OFF32:
+#if !defined(_POSIX_V6_ILP32_OFF32) && defined(_SC_V6_ILP32_OFF32)
+	case _SC_V6_ILP32_OFF32:
 #endif
-#ifndef _POSIX_V6_ILP32_OFFBIG
-	  case _SC_V6_ILP32_OFFBIG:
+#if !defined(_POSIX_V6_ILP32_OFFBIG) && defined(_SC_V6_ILP32_OFFBIG)
+	case _SC_V6_ILP32_OFFBIG:
 #endif
-#ifndef _POSIX_V6_LP64_OFF64
-	  case _SC_V6_LP64_OFF64:
+#if !defined(_POSIX_V6_LP64_OFF64) && defined(_SC_V6_LP64_OFF64)
+	case _SC_V6_LP64_OFF64:
 #endif
-#ifndef _POSIX_V6_LPBIG_OFFBIG
-	  case _SC_V6_LPBIG_OFFBIG:
+#if !defined(_POSIX_V6_LPBIG_OFFBIG) && defined(_SC_V6_LPBIG_OFFBIG)
+	case _SC_V6_LPBIG_OFFBIG:
 #endif
-#ifndef _POSIX_V7_ILP32_OFF32
-	  case _SC_V7_ILP32_OFF32:
+#if !defined(_POSIX_V7_ILP32_OFF32) && defined(_SC_V7_ILP32_OFF32)
+	case _SC_V7_ILP32_OFF32:
 #endif
-#ifndef _POSIX_V7_ILP32_OFFBIG
-	  case _SC_V7_ILP32_OFFBIG:
+#if !defined(_POSIX_V7_ILP32_OFFBIG) && defined(_SC_V7_ILP32_OFFBIG)
+	case _SC_V7_ILP32_OFFBIG:
 #endif
-#ifndef _POSIX_V7_LP64_OFF64
-	  case _SC_V7_LP64_OFF64:
+#if !defined(_POSIX_V7_LP64_OFF64) && defined(_SC_V7_LP64_OFF64)
+	case _SC_V7_LP64_OFF64:
 #endif
-#ifndef _POSIX_V7_LPBIG_OFFBIG
-	  case _SC_V7_LPBIG_OFFBIG:
+#if !defined(_POSIX_V7_LPBIG_OFFBIG) && defined(_SC_V7_LPBIG_OFFBIG)
+	case _SC_V7_LPBIG_OFFBIG:
 #endif
 	    {
 	      const char *args[argc + 3];
