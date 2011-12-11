@@ -52,11 +52,13 @@ extern struct link_map *_dl_update_slotinfo(unsigned long int req_modid);
 
 /* When libdl is loaded as a shared library, we need to load in
  * and use a pile of symbols from ldso... */
-
-extern struct elf_resolve * _dl_load_shared_library(int, struct dyn_elf **,
+#include <dl-elf.h>
+#if 0
+extern struct elf_resolve * _dl_load_shared_library(unsigned, struct dyn_elf **,
 	struct elf_resolve *, char *, int);
 extern int _dl_fixup(struct dyn_elf *rpnt, struct r_scope_elem *scope, int lazy);
 extern void _dl_protect_relro(struct elf_resolve * tpnt);
+#endif
 extern int _dl_errno;
 extern struct dyn_elf *_dl_symbol_tables;
 extern struct dyn_elf *_dl_handles;
@@ -100,8 +102,9 @@ int   _dl_debug_file      = 2;
 const char *_dl_progname       = "";        /* Program name */
 void *(*_dl_malloc_function)(size_t);
 void (*_dl_free_function) (void *p);
+#ifdef __LDSO_LD_LIBRARY_PATH__
 char *_dl_library_path         = NULL;         /* Where we look for libraries */
-char *_dl_ldsopath             = NULL;         /* Location of the shared lib loader */
+#endif
 int _dl_errno                  = 0;         /* We can't use the real errno in ldso */
 size_t _dl_pagesize            = PAGE_SIZE; /* Store the page size for use later */
 /* This global variable is also to communicate with debuggers such as gdb. */
@@ -128,7 +131,7 @@ size_t _dl_tls_static_size = 2048;
 # define _dl_if_debug_print(fmt, args...) \
 	do { \
 	if (_dl_debug) \
-		fprintf(stderr, "%s():%i: " fmt, __FUNCTION__, __LINE__, ## args); \
+		fprintf(stderr, "%s():%i: " fmt, __func__, __LINE__, ## args); \
 	} while (0)
 #else
 # define _dl_if_debug_print(fmt, args...)
@@ -307,7 +310,7 @@ void *dlopen(const char *libname, int flag)
 #endif
 
 	/* A bit of sanity checking... */
-	if (!(flag & (RTLD_LAZY|RTLD_NOW))) {
+	if (!(flag & (RTLD_LAZY|RTLD_NOW|RTLD_NOLOAD))) {
 		_dl_error_number = LD_BAD_HANDLE;
 		return NULL;
 	}
@@ -369,7 +372,7 @@ void *dlopen(const char *libname, int flag)
 	if (getenv("LD_BIND_NOW"))
 		now_flag = RTLD_NOW;
 
-#ifndef SHARED
+#if !defined SHARED && defined __LDSO_LIBRARY_PATH__
 	/* When statically linked, the _dl_library_path is not yet initialized */
 	_dl_library_path = getenv("LD_LIBRARY_PATH");
 #endif
@@ -377,8 +380,9 @@ void *dlopen(const char *libname, int flag)
 	/* Try to load the specified library */
 	_dl_if_debug_print("Trying to dlopen '%s', RTLD_GLOBAL:%d RTLD_NOW:%d\n",
 			(char*)libname, (flag & RTLD_GLOBAL ? 1:0), (now_flag & RTLD_NOW ? 1:0));
-	tpnt = _dl_load_shared_library(0, &rpnt, tfrom, (char*)libname, 0);
 
+	tpnt = _dl_load_shared_library((flag & RTLD_NOLOAD) ? DL_RESOLVE_NOLOAD : 0,
+					&rpnt, tfrom, (char*)libname, 0);
 	if (tpnt == NULL) {
 		_dl_unmap_cache();
 		return NULL;
@@ -747,7 +751,7 @@ static int do_dlclose(void *vhandle, int need_fini)
 	int (*dl_elf_fini) (void);
 	void (*dl_brk) (void);
 	struct dyn_elf *handle;
-	unsigned int end;
+	unsigned int end = 0, start = 0xffffffff;
 	unsigned int i, j;
 	struct r_scope_elem *ls;
 #if defined(USE_TLS) && USE_TLS
@@ -809,6 +813,8 @@ static int do_dlclose(void *vhandle, int need_fini)
 					i < tpnt->n_phent; ppnt++, i++) {
 				if (ppnt->p_type != PT_LOAD)
 					continue;
+				if (ppnt->p_vaddr < start)
+					start = ppnt->p_vaddr;
 				if (end < ppnt->p_vaddr + ppnt->p_memsz)
 					end = ppnt->p_vaddr + ppnt->p_memsz;
 			}
@@ -915,7 +921,9 @@ static int do_dlclose(void *vhandle, int need_fini)
 			}
 #endif
 
-			DL_LIB_UNMAP (tpnt, end - tpnt->mapaddr);
+			end = (end + ADDR_ALIGN) & PAGE_ALIGN;
+			start = start & ~ADDR_ALIGN;
+			DL_LIB_UNMAP (tpnt, end - start);
 			/* Free elements in RTLD_LOCAL scope list */
 			for (runp = tpnt->rtld_local; runp; runp = tmp) {
 				tmp = runp->next;

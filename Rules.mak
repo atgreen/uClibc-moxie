@@ -30,24 +30,24 @@ endif
 
 #-----------------------------------------------------------
 # If you are running a cross compiler, you will want to set
-# 'CROSS' to something more interesting ...  Target
+# 'CROSS_COMPILE' to something more interesting ...  Target
 # architecture is determined by asking the CC compiler what
 # arch it compiles things for, so unless your compiler is
 # broken, you should not need to specify TARGET_ARCH.
 #
 # Most people will set this stuff on the command line, i.e.
-#        make CROSS=arm-linux-
+#        make CROSS_COMPILE=arm-linux-
 # will build uClibc for 'arm'.
+# CROSS is still supported for backward compatibily only
 
-ifndef CROSS
-CROSS=
-endif
-CC         = $(CROSS)gcc
-AR         = $(CROSS)ar
-LD         = $(CROSS)ld
-NM         = $(CROSS)nm
-OBJDUMP    = $(CROSS)objdump
-STRIPTOOL  = $(CROSS)strip
+CROSS_COMPILE ?= $(CROSS)
+
+CC         = $(CROSS_COMPILE)gcc
+AR         = $(CROSS_COMPILE)ar
+LD         = $(CROSS_COMPILE)ld
+NM         = $(CROSS_COMPILE)nm
+OBJDUMP    = $(CROSS_COMPILE)objdump
+STRIPTOOL  = $(CROSS_COMPILE)strip
 
 INSTALL    = install
 LN         = ln
@@ -93,7 +93,6 @@ endif
 export ARCH
 
 # Make certain these contain a final "/", but no "//"s.
-TARGET_SUBARCH:=$(call qstrip,$(shell grep -s '^TARGET_SUBARCH' $(top_builddir)/.config | $(SED) -e 's/^TARGET_SUBARCH=//'))
 TARGET_SUBARCH:=$(call qstrip,$(TARGET_SUBARCH))
 RUNTIME_PREFIX:=$(strip $(subst //,/, $(subst ,/, $(call qstrip,$(RUNTIME_PREFIX)))))
 DEVEL_PREFIX:=$(strip $(subst //,/, $(subst ,/, $(call qstrip,$(DEVEL_PREFIX)))))
@@ -118,7 +117,7 @@ export MAJOR_VERSION MINOR_VERSION SUBLEVEL VERSION ABI_VERSION LC_ALL
 
 LIBC := libc
 SHARED_LIBNAME := $(LIBC).so.$(ABI_VERSION)
-UBACKTRACE_DSO := libubacktrace.so.$(MAJOR_VERSION)
+UBACKTRACE_DSO := libubacktrace.so.$(ABI_VERSION)
 ifneq ($(findstring  $(TARGET_ARCH) , hppa64 ia64 mips64 powerpc64 s390x sparc64 x86_64 ),)
 UCLIBC_LDSO_NAME := ld64-uClibc
 ARCH_NATIVE_BIT := 64
@@ -159,8 +158,8 @@ endif
 comma:=,
 space:= #
 
-ifndef CROSS
-CROSS=$(call qstrip,$(CROSS_COMPILER_PREFIX))
+ifndef CROSS_COMPILE
+CROSS_COMPILE=$(call qstrip,$(CROSS_COMPILER_PREFIX))
 endif
 
 # A nifty macro to make testing gcc features easier

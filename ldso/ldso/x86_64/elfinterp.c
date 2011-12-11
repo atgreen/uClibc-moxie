@@ -188,9 +188,10 @@ _dl_do_reloc(struct elf_resolve *tpnt, struct r_scope_elem *scope,
 			/* This may be non-fatal if called from dlopen. */
 			return 1;
 		}
-		if (_dl_trace_prelink)
+		if (_dl_trace_prelink) {
 			_dl_debug_lookup (symname, tpnt, &symtab[symtab_index],
 						&sym_ref, elf_machine_type_class(reloc_type));
+		}
 #if defined USE_TLS && USE_TLS
 		tls_tpnt = sym_ref.tpnt;
 #endif
@@ -291,14 +292,12 @@ _dl_do_lazy_reloc(struct elf_resolve *tpnt, struct r_scope_elem *scope,
 		  ELF_RELOC *rpnt, ElfW(Sym) *symtab, char *strtab)
 {
 	int reloc_type;
-	int symtab_index;
 	ElfW(Addr) *reloc_addr;
 #if defined (__SUPPORT_LD_DEBUG__)
 	ElfW(Addr) old_val;
 #endif
 
 	(void)scope;
-	symtab_index = ELF_R_SYM(rpnt->r_info);
 	(void)strtab;
 
 	reloc_addr = (ElfW(Addr)*)(tpnt->loadaddr + rpnt->r_offset);

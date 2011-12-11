@@ -46,11 +46,15 @@
 #include LDSO_ELFINTERP
 
 /* Global variables used within the shared library loader */
+#ifdef __LDSO_LD_LIBRARY_PATH__
 char *_dl_library_path         = NULL;	/* Where we look for libraries */
+#endif
 #ifdef __LDSO_PRELOAD_ENV_SUPPORT__
 char *_dl_preload              = NULL;	/* Things to be loaded before the libs */
 #endif
+#ifdef __LDSO_SEARCH_INTERP_PATH__
 char *_dl_ldsopath             = NULL;	/* Location of the shared lib loader */
+#endif
 int _dl_errno                  = 0;	/* We can't use the real errno in ldso */
 size_t _dl_pagesize            = 0;	/* Store the page size for use later */
 struct r_debug *_dl_debug_addr = NULL;	/* Used to communicate with the gdb debugger */
@@ -304,10 +308,12 @@ static void trace_objects(struct elf_resolve *tpnt, char *str_name)
 					tpnt->mapaddr, DL_LOADADDR_BASE(tpnt->loadaddr));
 	}
 
+#if defined USE_TLS && USE_TLS
 	if ((tpnt->libtype != program_interpreter) && (tpnt->l_tls_modid))
 		_dl_dprintf (1, " TLS(%x, %x)\n", tpnt->l_tls_modid,
 					(size_t) tpnt->l_tls_offset);
 	else
+#endif
 		_dl_dprintf (1, "\n");
 }
 #endif
@@ -453,7 +459,9 @@ void *_dl_get_ready_to_run(struct elf_resolve *tpnt, DL_LOADADDR_TYPE load_addr,
 #ifdef __LDSO_PRELOAD_ENV_SUPPORT__
 		_dl_preload = _dl_getenv("LD_PRELOAD", envp);
 #endif
+#ifdef __LDSO_LD_LIBRARY_PATH__
 		_dl_library_path = _dl_getenv("LD_LIBRARY_PATH", envp);
+#endif
 	} else {
 		static const char unsecure_envvars[] =
 #ifdef EXTRA_UNSECURE_ENVVARS
@@ -472,7 +480,9 @@ void *_dl_get_ready_to_run(struct elf_resolve *tpnt, DL_LOADADDR_TYPE load_addr,
 #ifdef __LDSO_PRELOAD_ENV_SUPPORT__
 		_dl_preload = NULL;
 #endif
+#ifdef __LDSO_LD_LIBRARY_PATH__
 		_dl_library_path = NULL;
+#endif
 		/* SUID binaries can be exploited if they do LAZY relocation. */
 		unlazy = RTLD_NOW;
 	}
@@ -484,14 +494,15 @@ void *_dl_get_ready_to_run(struct elf_resolve *tpnt, DL_LOADADDR_TYPE load_addr,
 
 #ifdef __LDSO_STANDALONE_SUPPORT__
 	if (_start == (void *) auxvt[AT_ENTRY].a_un.a_val) {
-		char *ptmp;
 		unsigned int *aux_dat = (unsigned int *) argv;
 		int argc = aux_dat[-1];
 
 		tpnt->libname = argv[0];
 		while (argc > 1)
 			if (! _dl_strcmp (argv[1], "--library-path") && argc > 2) {
+#ifdef __LDSO_LD_LIBRARY_PATH__
 				_dl_library_path = argv[2];
+#endif
 				_dl_skip_args += 2;
 				argc -= 2;
 				argv += 2;
@@ -563,15 +574,20 @@ of this helper program; chances are you did not intend to run this program.\n\
 			}
 		}
 
-		/* Store the path where the shared lib loader was found
-		 * for later use
-		 */
-		_dl_ldsopath = _dl_strdup(tpnt->libname);
-		ptmp = _dl_strrchr(_dl_ldsopath, '/');
-		if (ptmp != _dl_ldsopath)
-			*ptmp = '\0';
+#ifdef __LDSO_SEARCH_INTERP_PATH__
+		{
+			char *ptmp;
+			/* Store the path where the shared lib loader was found
+			 * for later use
+			 */
+			_dl_ldsopath = _dl_strdup(tpnt->libname);
+			ptmp = _dl_strrchr(_dl_ldsopath, '/');
+			if (ptmp != _dl_ldsopath)
+				*ptmp = '\0';
 
-		_dl_debug_early("Lib Loader: (%x) %s\n", (unsigned) DL_LOADADDR_BASE(tpnt->loadaddr), tpnt->libname);
+			_dl_debug_early("Lib Loader: (%x) %s\n", (unsigned) DL_LOADADDR_BASE(tpnt->loadaddr), tpnt->libname);
+		}
+#endif
 	} else {
 #endif
 
@@ -842,7 +858,9 @@ of this helper program; chances are you did not intend to run this program.\n\
 			if (!_dl_secure || _dl_strchr(str, '/') == NULL) {
 				_dl_if_debug_dprint("\tfile='%s';  needed by '%s'\n", str, _dl_progname);
 
-				tpnt1 = _dl_load_shared_library(_dl_secure, &rpnt, NULL, str, trace_loaded_objects);
+				tpnt1 = _dl_load_shared_library(
+					_dl_secure ? DL_RESOLVE_SECURE : 0,
+					&rpnt, NULL, str, trace_loaded_objects);
 				if (!tpnt1) {
 #ifdef __LDSO_LDD_SUPPORT__
 					if (trace_loaded_objects || _dl_trace_prelink)

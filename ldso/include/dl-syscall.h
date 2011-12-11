@@ -8,6 +8,13 @@
 #ifndef _LD_SYSCALL_H_
 #define _LD_SYSCALL_H_
 
+/* We can't use the real errno in ldso, since it has not yet
+ * been dynamicly linked in yet. */
+#include "sys/syscall.h"
+extern int _dl_errno;
+#undef __set_errno
+#define __set_errno(X) {(_dl_errno) = (X);}
+
 /* Pull in the arch specific syscall implementation */
 #include <dl-syscalls.h>
 /*  For MAP_ANONYMOUS -- differs between platforms */
@@ -100,6 +107,28 @@ static __always_inline _syscall0(gid_t, _dl_getpid)
 #define __NR__dl_readlink __NR_readlink
 static __always_inline _syscall3(int, _dl_readlink, const char *, path, char *, buf,
                         size_t, bufsiz)
+
+#ifdef __NR_pread64
+#define __NR___syscall_pread __NR_pread64
+static __always_inline _syscall5(ssize_t, __syscall_pread, int, fd, void *, buf,
+			size_t, count, off_t, offset_hi, off_t, offset_lo)
+
+static __always_inline ssize_t
+_dl_pread(int fd, void *buf, size_t count, off_t offset)
+{
+	return __syscall_pread(fd, buf, count, offset, offset >> 31);
+}
+#elif defined __NR_pread
+#define __NR___syscall_pread __NR_pread
+static __always_inline _syscall5(ssize_t, __syscall_pread, int, fd, void *, buf,
+			size_t, count, off_t, offset_hi, off_t, offset_lo)
+
+static __always_inline ssize_t
+_dl_pread(int fd, void *buf, size_t count, off_t offset)
+{
+	return __syscall_pread(fd, buf, count, __LONG_LONG_PAIR(offset >> 31, offset));
+}
+#endif
 
 #ifdef __UCLIBC_HAS_SSP__
 # include <sys/time.h>
