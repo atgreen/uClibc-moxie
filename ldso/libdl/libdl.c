@@ -34,6 +34,7 @@
 #include <stdio.h>
 #include <string.h> /* Needed for 'strstr' prototype' */
 #include <stdbool.h>
+#include <bits/uClibc_mutex.h>
 
 #ifdef __UCLIBC_HAS_TLS__
 #include <tls.h>
@@ -43,6 +44,10 @@
 #include <ldsodefs.h>
 extern void _dl_add_to_slotinfo(struct link_map  *l);
 #endif
+
+/* TODO: get rid of global lock and use more finegrained locking, or
+ * perhaps RCU for the global structures */
+__UCLIBC_MUTEX_STATIC(_dl_mutex, PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP);
 
 #ifdef SHARED
 # if defined(USE_TLS) && USE_TLS
@@ -291,7 +296,7 @@ static ptrdiff_t _dl_build_local_scope (struct elf_resolve **list,
 	return p - list;
 }
 
-void *dlopen(const char *libname, int flag)
+static void *do_dlopen(const char *libname, int flag)
 {
 	struct elf_resolve *tpnt, *tfrom;
 	struct dyn_elf *dyn_chain, *rpnt = NULL, *dyn_ptr, *relro_ptr, *handle;
@@ -538,6 +543,12 @@ void *dlopen(const char *libname, int flag)
 	 * Now we go through and look for REL and RELA records that indicate fixups
 	 * to the GOT tables.  We need to do this in reverse order so that COPY
 	 * directives work correctly */
+
+	/* Get the tail of the list */
+	for (ls = &_dl_loaded_modules->symbol_scope; ls && ls->next; ls = ls->next);
+
+	/* Extend the global scope by adding the local scope of the dlopened DSO. */
+	ls->next = &dyn_chain->dyn->symbol_scope;
 #ifdef __mips__
 	/*
 	 * Relocation of the GOT entries for MIPS have to be done
@@ -545,11 +556,6 @@ void *dlopen(const char *libname, int flag)
 	 */
 	_dl_perform_mips_global_got_relocations(tpnt, !now_flag);
 #endif
-	/* Get the tail of the list */
-	for (ls = &_dl_loaded_modules->symbol_scope; ls && ls->next; ls = ls->next);
-
-	/* Extend the global scope by adding the local scope of the dlopened DSO. */
-	ls->next = &dyn_chain->dyn->symbol_scope;
 
 	if (_dl_fixup(dyn_chain, &_dl_loaded_modules->symbol_scope, now_flag))
 		goto oops;
@@ -650,7 +656,18 @@ oops:
 	return NULL;
 }
 
-void *dlsym(void *vhandle, const char *name)
+void *dlopen(const char *libname, int flag)
+{
+	void *ret;
+
+	__UCLIBC_MUTEX_CONDITIONAL_LOCK(_dl_mutex, 1);
+	ret = do_dlopen(libname, flag);
+	__UCLIBC_MUTEX_CONDITIONAL_UNLOCK(_dl_mutex, 1);
+
+	return ret;
+}
+
+static void *do_dlsym(void *vhandle, const char *name, void *caller_address)
 {
 	struct elf_resolve *tpnt, *tfrom;
 	struct dyn_elf *handle;
@@ -698,7 +715,7 @@ void *dlsym(void *vhandle, const char *name)
 		 * dynamic loader itself, as it doesn't know
 		 * how to properly treat it.
 		 */
-		from = (ElfW(Addr)) __builtin_return_address(0);
+		from = (ElfW(Addr)) caller_address;
 
 		tfrom = NULL;
 		for (rpnt = _dl_symbol_tables; rpnt; rpnt = rpnt->next) {
@@ -735,6 +752,17 @@ out:
 	return ret;
 }
 
+void *dlsym(void *vhandle, const char *name)
+{
+	void *ret;
+
+	__UCLIBC_MUTEX_CONDITIONAL_LOCK(_dl_mutex, 1);
+	ret = do_dlsym(vhandle, name, __builtin_return_address(0));
+	__UCLIBC_MUTEX_CONDITIONAL_UNLOCK(_dl_mutex, 1);
+
+	return ret;
+}
+
 #if 0
 void *dlvsym(void *vhandle, const char *name, const char *version)
 {
@@ -753,7 +781,9 @@ static int do_dlclose(void *vhandle, int need_fini)
 	struct dyn_elf *handle;
 	unsigned int end = 0, start = 0xffffffff;
 	unsigned int i, j;
-	struct r_scope_elem *ls;
+	struct r_scope_elem *ls, *ls_next = NULL;
+	struct elf_resolve **handle_rlist;
+
 #if defined(USE_TLS) && USE_TLS
 	bool any_tls = false;
 	size_t tls_free_start = NO_TLS_OFFSET;
@@ -786,6 +816,19 @@ static int do_dlclose(void *vhandle, int need_fini)
 		free(handle);
 		return 0;
 	}
+
+	/* Store the handle's local scope array for later removal */
+	handle_rlist = handle->dyn->symbol_scope.r_list;
+
+	/* Store references to the local scope entries for later removal */
+	for (ls = &_dl_loaded_modules->symbol_scope; ls && ls->next; ls = ls->next)
+		if (ls->next->r_list[0] == handle->dyn) {
+			break;
+		}
+	/* ls points to the previous local symbol scope */
+	if(ls && ls->next)
+		ls_next = ls->next->next;
+
 	/* OK, this is a valid handle - now close out the file */
 	for (j = 0; j < handle->init_fini.nlist; ++j) {
 		tpnt = handle->init_fini.init_fini[j];
@@ -947,16 +990,6 @@ static int do_dlclose(void *vhandle, int need_fini)
 				}
 			}
 
-			if (handle->dyn == tpnt) {
-				/* Unlink the local scope from global one */
-				for (ls = &_dl_loaded_modules->symbol_scope; ls; ls = ls->next)
-					if (ls->next->r_list[0] == tpnt) {
-						_dl_if_debug_print("removing symbol_scope: %s\n", tpnt->libname);
-						break;
-					}
-				ls->next = ls->next->next;
-			}
-
 			/* Next, remove tpnt from the global symbol table list */
 			if (_dl_symbol_tables) {
 				if (_dl_symbol_tables->dyn == tpnt) {
@@ -978,10 +1011,14 @@ static int do_dlclose(void *vhandle, int need_fini)
 				}
 			}
 			free(tpnt->libname);
-			free(tpnt->symbol_scope.r_list);
 			free(tpnt);
 		}
 	}
+	/* Unlink and release the handle's local scope from global one */
+	if(ls)
+		ls->next = ls_next;
+	free(handle_rlist);
+
 	for (rpnt1 = handle->next; rpnt1; rpnt1 = rpnt1_tmp) {
 		rpnt1_tmp = rpnt1->next;
 		free(rpnt1);
@@ -1018,7 +1055,13 @@ static int do_dlclose(void *vhandle, int need_fini)
 
 int dlclose(void *vhandle)
 {
-	return do_dlclose(vhandle, 1);
+	int ret;
+
+	__UCLIBC_MUTEX_CONDITIONAL_LOCK(_dl_mutex, 1);
+	ret = do_dlclose(vhandle, 1);
+	__UCLIBC_MUTEX_CONDITIONAL_UNLOCK(_dl_mutex, 1);
+
+	return ret;
 }
 
 char *dlerror(void)
@@ -1065,7 +1108,7 @@ int dlinfo(void)
 	return 0;
 }
 
-int dladdr(const void *__address, Dl_info * __info)
+static int do_dladdr(const void *__address, Dl_info * __info)
 {
 	struct elf_resolve *pelf;
 	struct elf_resolve *rpnt;
@@ -1177,3 +1220,14 @@ int dladdr(const void *__address, Dl_info * __info)
 	}
 }
 #endif
+
+int dladdr(const void *__address, Dl_info * __info)
+{
+	int ret;
+
+	__UCLIBC_MUTEX_CONDITIONAL_LOCK(_dl_mutex, 1);
+	ret = do_dladdr(__address, __info);
+	__UCLIBC_MUTEX_CONDITIONAL_UNLOCK(_dl_mutex, 1);
+
+	return ret;
+}
